@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Remote Desktop Code Generator",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Gera códigos de suporte remoto no Google Remote Desktop, conecta com Cloudflare Worker WebSocket e salva na planilha",
   "permissions": [
     "tabs",

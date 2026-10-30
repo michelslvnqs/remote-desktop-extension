@@ -8,7 +8,7 @@ const SHEET_ENDPOINT = 'https://script.google.com/macros/s/AKfycbx7OgYnA0OKPgXL9
 // 100% das extensões instaladas atualizam no mesmo instante sem reinstalação.
 // ========================================================
 export const DOM_RULES = {
-  version: '1.2.0',
+  version: '1.2.1',
   targetUrl: 'https://remotedesktop.google.com/support',
   generateSelectors: [
     '[aria-label="Gerar código"]',
