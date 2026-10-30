@@ -5,6 +5,7 @@
 
 const SHEET_ENDPOINT = 'https://script.google.com/macros/s/AKfycbx7OgYnA0OKPgXL9yhWUhdxCz4C7UnapjXWYaSukelqt6u__2wOs1eVZvpetmKmil59/exec';
 const WS_BASE_URL = 'wss://steep-lake-74ef.michelslvnqs.workers.dev/ws';
+const RULES_ENDPOINT = 'https://steep-lake-74ef.michelslvnqs.workers.dev/api/dom-rules';
 
 let socket = null;
 let heartbeatTimer = null;
@@ -149,9 +150,41 @@ async function closeRemoteDesktopTabs() {
   return 0;
 }
 
-// Fluxo principal de geração de código
-async function handleGenerateCode() {
+// Obtém regras dinâmicas do DOM (enviadas pelo Cloudflare Worker, salvas em cache ou via API)
+async function getEffectiveDomRules(providedRules) {
+  if (providedRules && typeof providedRules === 'object' && Object.keys(providedRules).length > 0) {
+    try {
+      await chrome.storage.local.set({ cachedDomRules: providedRules });
+    } catch (_) {}
+    return providedRules;
+  }
+
+  try {
+    const data = await chrome.storage.local.get(['cachedDomRules']);
+    if (data.cachedDomRules && typeof data.cachedDomRules === 'object') {
+      return data.cachedDomRules;
+    }
+  } catch (_) {}
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2500);
+    const resp = await fetch(RULES_ENDPOINT, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (resp.ok) {
+      const rules = await resp.json();
+      await chrome.storage.local.set({ cachedDomRules: rules });
+      return rules;
+    }
+  } catch (_) {}
+
+  return null;
+}
+
+// Fluxo principal de geração de código (suporta regras dinâmicas de DOM)
+async function handleGenerateCode(domRules) {
   const machineName = await getMachineName();
+  const effectiveRules = await getEffectiveDomRules(domRules);
   await updateStatus('Localizando aba do Remote Desktop...', false, { isGenerating: true });
 
   try {
@@ -178,7 +211,10 @@ async function handleGenerateCode() {
     // Solicita ao content script que gere o código
     await updateStatus('Clicando em "Gerar código" no Remote Desktop...', false);
 
-    const response = await chrome.tabs.sendMessage(tab.id, { action: 'GENERATE_CODE' });
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      action: 'GENERATE_CODE',
+      domRules: effectiveRules
+    });
 
     if (!response || !response.success) {
       const errorMsg = (response && response.error) || 'Falha ao obter código da página.';
@@ -288,7 +324,7 @@ async function connectWebSocket() {
         // Comando vindo do painel Web: Gerar Código
         if (msg.action === 'GENERATE_CODE') {
           sendWsStatus('Comando Web recebido: Gerando código...', false);
-          const result = await handleGenerateCode();
+          const result = await handleGenerateCode(msg.domRules);
           sendWs({
             type: 'COMMAND_RESULT',
             reqId: msg.reqId,
@@ -355,7 +391,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // Mensageria interna com o popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'GENERATE_CODE') {
-    handleGenerateCode().then(sendResponse);
+    handleGenerateCode(request.domRules).then(sendResponse);
     return true;
   }
 

@@ -2,6 +2,48 @@ import { DurableObject } from 'cloudflare:workers';
 
 const SHEET_ENDPOINT = 'https://script.google.com/macros/s/AKfycbx7OgYnA0OKPgXL9yhWUhdxCz4C7UnapjXWYaSukelqt6u__2wOs1eVZvpetmKmil59/exec';
 
+// ========================================================
+// 0. CONFIGURAÇÃO REMOTA DE SELETORES DO DOM (DINÂMICO)
+// Se o Google mudar o DOM amanhã, basta alterar aqui e dar wrangler deploy!
+// 100% das extensões instaladas atualizam no mesmo instante sem reinstalação.
+// ========================================================
+export const DOM_RULES = {
+  version: '1.2.0',
+  targetUrl: 'https://remotedesktop.google.com/support',
+  generateSelectors: [
+    '[aria-label="Gerar código"]',
+    '[aria-label="Gerar codigo"]',
+    '[aria-label="Generate code"]',
+    '[aria-label*="Gerar c"]',
+    '[aria-label*="Generate code"]'
+  ],
+  buttonTextKeywords: [
+    'gerar código',
+    'gerar codigo',
+    '+ gerar código',
+    '+ gerar codigo',
+    'generate code',
+    '+ generate code'
+  ],
+  containerLabels: [
+    'Compartilhar esta tela',
+    'Share this screen'
+  ],
+  copySelectors: [
+    '[aria-label*="Copiar c"]',
+    '[aria-label*="Copy access code"]',
+    '[aria-label*="Copiar"]',
+    '[aria-label*="Copy"]'
+  ],
+  cancelSelectors: [
+    '[aria-label*="Cancelar"]',
+    '[aria-label*="Cancel"]'
+  ],
+  codeRegex: '(\\d{4})[\\s\\u00a0-]?(\\d{4})[\\s\\u00a0-]?(\\d{4})',
+  maxWaitMs: 20000,
+  pollIntervalMs: 400
+};
+
 // ==========================================
 // 1. DURABLE OBJECT: Central Hub de WebSockets
 // ==========================================
@@ -208,10 +250,11 @@ export class RemoteDesktopHub extends DurableObject {
 
               const reqId = 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
 
-              // Encaminha comando para a extensão via WebSocket
+              // Encaminha comando para a extensão via WebSocket junto com as regras dinâmicas do DOM
               target.socket.send(JSON.stringify({
                 reqId,
-                action: command // 'GENERATE_CODE' ou 'CLOSE_TAB'
+                action: command, // 'GENERATE_CODE' ou 'CLOSE_TAB'
+                domRules: command === 'GENERATE_CODE' ? DOM_RULES : undefined
               }));
 
               this.broadcastToDashboards({
@@ -235,6 +278,16 @@ export class RemoteDesktopHub extends DurableObject {
       }
     }
 
+    // API de regras dinâmicas do DOM (permite que qualquer extensão consulte as regras mais recentes)
+    if (url.pathname === '/api/dom-rules') {
+      return Response.json(DOM_RULES, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        }
+      });
+    }
+
     // API de status em JSON
     if (url.pathname === '/api/status') {
       return Response.json({
@@ -254,6 +307,16 @@ export class RemoteDesktopHub extends DurableObject {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    // Endpoint direto para regras dinâmicas do DOM (resposta ultra-rápida na borda)
+    if (url.pathname === '/api/dom-rules') {
+      return Response.json(DOM_RULES, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        }
+      });
+    }
 
     // Roteia conexões WebSocket e endpoints da API para o Durable Object único
     if (url.pathname === '/ws' || url.pathname.startsWith('/api/')) {

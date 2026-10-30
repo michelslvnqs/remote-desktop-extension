@@ -1,9 +1,49 @@
 /**
  * Remote Desktop Code Generator - Content Script
  * Executa na página https://remotedesktop.google.com/support
+ * 
+ * Suporta regras e seletores dinâmicos enviados diretamente pelo Cloudflare Worker
+ * Se o Google alterar o DOM, as regras são atualizadas no Worker e refletidas aqui
+ * sem necessidade de reinstalar a extensão.
  */
 
 console.log('[RemoteDesktopExtension] Content script carregado em:', window.location.href);
+
+// Regras padrão de fallback (caso o servidor esteja offline)
+const DEFAULT_DOM_RULES = {
+  generateSelectors: [
+    '[aria-label="Gerar código"]',
+    '[aria-label="Gerar codigo"]',
+    '[aria-label="Generate code"]',
+    '[aria-label*="Gerar c"]',
+    '[aria-label*="Generate code"]'
+  ],
+  buttonTextKeywords: [
+    'gerar código',
+    'gerar codigo',
+    '+ gerar código',
+    '+ gerar codigo',
+    'generate code',
+    '+ generate code'
+  ],
+  containerLabels: [
+    'Compartilhar esta tela',
+    'Share this screen'
+  ],
+  copySelectors: [
+    '[aria-label*="Copiar c"]',
+    '[aria-label*="Copy access code"]',
+    '[aria-label*="Copiar"]',
+    '[aria-label*="Copy"]'
+  ],
+  cancelSelectors: [
+    '[aria-label*="Cancelar"]',
+    '[aria-label*="Cancel"]'
+  ],
+  codeRegex: '(\\d{4})[\\s\\u00a0-]?(\\d{4})[\\s\\u00a0-]?(\\d{4})',
+  maxWaitMs: 20000,
+  pollIntervalMs: 400
+};
 
 // Função utilitária de espera
 function sleep(ms) {
@@ -73,90 +113,99 @@ async function copyCode(text, copyBtn) {
   }
 }
 
-// Localiza o código de 12 dígitos na página (ex: 3985 2013 0314)
-function extract12DigitCode() {
-  // 1. Procura primeiro ao lado do botão nativo de cópia do Google
-  const copyBtn = document.querySelector(
-    '[aria-label*="Copiar c"], [aria-label*="Copy access code"], [aria-label*="Copiar"], [aria-label*="Copy"]'
-  );
+// Cria regex dinâmico com base nas regras fornecidas pelo Worker
+function getCodeRegex(rules) {
+  const pattern = (rules && rules.codeRegex) || DEFAULT_DOM_RULES.codeRegex;
+  try {
+    return new RegExp(pattern);
+  } catch (_) {
+    return new RegExp(DEFAULT_DOM_RULES.codeRegex);
+  }
+}
 
-  if (copyBtn) {
-    // Procura no container pai
-    const container = copyBtn.closest('div[role="region"]') ||
-                      copyBtn.parentElement?.parentElement?.parentElement ||
-                      copyBtn.parentElement;
-    if (container) {
-      const text = container.innerText || container.textContent || '';
-      const match = text.match(/\b(\d{4})[\s\u00a0-]?(\d{4})[\s\u00a0-]?(\d{4})\b/);
-      if (match) {
-        return {
-          formatted: `${match[1]} ${match[2]} ${match[3]}`,
-          raw: `${match[1]}${match[2]}${match[3]}`,
-          copyBtn
-        };
+// Localiza o código de 12 dígitos na página usando as regras dinâmicas
+function extract12DigitCode(rules) {
+  const copySelectors = (rules && rules.copySelectors) || DEFAULT_DOM_RULES.copySelectors;
+  const regex = getCodeRegex(rules);
+
+  // 1. Procura primeiro ao lado dos botões nativos de cópia especificados nas regras
+  for (const sel of copySelectors) {
+    try {
+      const copyBtn = document.querySelector(sel);
+      if (copyBtn) {
+        const container = copyBtn.closest('div[role="region"]') ||
+                          copyBtn.parentElement?.parentElement?.parentElement ||
+                          copyBtn.parentElement;
+        if (container) {
+          const text = container.innerText || container.textContent || '';
+          const match = text.match(regex);
+          if (match) {
+            return {
+              formatted: `${match[1]} ${match[2]} ${match[3]}`,
+              raw: `${match[1]}${match[2]}${match[3]}`,
+              copyBtn
+            };
+          }
+        }
       }
-    }
+    } catch (_) {}
   }
 
-  // 2. Procura em todo o texto da página por um padrão de 12 dígitos
+  // 2. Procura em todo o texto da página pelo regex
   const bodyText = document.body.innerText || document.body.textContent || '';
-  const match = bodyText.match(/\b(\d{4})[\s\u00a0-]?(\d{4})[\s\u00a0-]?(\d{4})\b/);
+  const match = bodyText.match(regex);
   if (match) {
     return {
       formatted: `${match[1]} ${match[2]} ${match[3]}`,
       raw: `${match[1]}${match[2]}${match[3]}`,
-      copyBtn: copyBtn || null
+      copyBtn: null
     };
   }
 
   return null;
 }
 
-// Localiza o botão "Gerar código" correto
-function findGenerateButton() {
-  // 1. Pelo aria-label exato
-  const ariaSelectors = [
-    '[aria-label="Gerar código"]',
-    '[aria-label="Gerar codigo"]',
-    '[aria-label="Generate code"]',
-    '[aria-label*="Gerar c"]',
-    '[aria-label*="Generate code"]'
-  ];
+// Localiza o botão "Gerar código" com base nas regras dinâmicas
+function findGenerateButton(rules) {
+  const generateSelectors = (rules && rules.generateSelectors) || DEFAULT_DOM_RULES.generateSelectors;
+  const textKeywords = (rules && rules.buttonTextKeywords) || DEFAULT_DOM_RULES.buttonTextKeywords;
+  const containerLabels = (rules && rules.containerLabels) || DEFAULT_DOM_RULES.containerLabels;
 
-  for (const sel of ariaSelectors) {
-    const el = document.querySelector(sel);
-    if (el && isVisible(el)) return el;
+  // 1. Pelos seletores do Worker
+  for (const sel of generateSelectors) {
+    try {
+      const el = document.querySelector(sel);
+      if (el && isVisible(el)) return el;
+    } catch (_) {}
   }
 
-  // 2. Procura botões ou divs com role="button" pelo texto
+  // 2. Pelas palavras-chave em botões
   const candidates = document.querySelectorAll('button, [role="button"], div[role="button"]');
   for (const el of candidates) {
     const text = (el.innerText || el.textContent || '').trim().toLowerCase();
     const aria = (el.getAttribute('aria-label') || '').toLowerCase();
-    if (
-      text === 'gerar código' ||
-      text === 'gerar codigo' ||
-      text === '+ gerar código' ||
-      text === '+ gerar codigo' ||
-      text === 'generate code' ||
-      text === '+ generate code' ||
-      aria.includes('gerar c') ||
-      aria.includes('generate code')
-    ) {
-      if (isVisible(el)) return el;
+    for (const kw of textKeywords) {
+      const kwLower = kw.toLowerCase();
+      if (text === kwLower || aria === kwLower || aria.includes(kwLower)) {
+        if (isVisible(el)) return el;
+      }
     }
   }
 
-  // 3. Procura especificamente dentro do card "Compartilhar esta tela" / "Share this screen"
+  // 3. Dentro dos containers especificados
   const allSections = document.querySelectorAll('section, div');
   for (const sec of allSections) {
     const h = sec.querySelector('h1, h2, h3');
-    if (h && (h.textContent.includes('Compartilhar esta tela') || h.textContent.includes('Share this screen'))) {
-      const clickables = sec.querySelectorAll('button, [role="button"], div[tabindex="0"]');
-      for (const c of clickables) {
-        const t = (c.innerText || c.textContent || '').trim().toLowerCase();
-        if (t.includes('gerar') || t.includes('generate')) {
-          if (isVisible(c)) return c;
+    if (h) {
+      const hText = (h.textContent || '').toLowerCase();
+      const matchesContainer = containerLabels.some(l => hText.includes(l.toLowerCase()));
+      if (matchesContainer) {
+        const clickables = sec.querySelectorAll('button, [role="button"], div[tabindex="0"]');
+        for (const c of clickables) {
+          const t = (c.innerText || c.textContent || '').trim().toLowerCase();
+          if (t.includes('gerar') || t.includes('generate')) {
+            if (isVisible(c)) return c;
+          }
         }
       }
     }
@@ -165,9 +214,10 @@ function findGenerateButton() {
   return null;
 }
 
-// Fluxo principal de geração do código
-async function performCodeGeneration() {
-  console.log('[RemoteDesktopExtension] Iniciando performCodeGeneration...');
+// Fluxo principal de geração do código orientado a regras dinâmicas
+async function performCodeGeneration(domRules) {
+  const rules = domRules || DEFAULT_DOM_RULES;
+  console.log('[RemoteDesktopExtension] Iniciando performCodeGeneration com versão de regras:', rules.version || 'default');
 
   // Verifica se está na página de login do Google
   if (window.location.href.includes('accounts.google.com')) {
@@ -178,7 +228,7 @@ async function performCodeGeneration() {
   }
 
   // 1. Verifica se já existe um código ativo gerado na tela
-  const existingCode = extract12DigitCode();
+  const existingCode = extract12DigitCode(rules);
   if (existingCode) {
     console.log('[RemoteDesktopExtension] Código já ativo encontrado:', existingCode.formatted);
     await copyCode(existingCode.formatted, existingCode.copyBtn);
@@ -191,17 +241,15 @@ async function performCodeGeneration() {
   }
 
   // 2. Localiza o botão "Gerar código"
-  let btn = findGenerateButton();
+  let btn = findGenerateButton(rules);
 
-  // Se não encontrar de imediato, aguarda até 3 segundos para a interface assíncrona terminar de carregar
   if (!btn) {
     console.log('[RemoteDesktopExtension] Botão não encontrado de imediato, aguardando 2s...');
     await sleep(2000);
-    btn = findGenerateButton();
+    btn = findGenerateButton(rules);
   }
 
   if (!btn) {
-    // Verifica se precisa aceitar e instalar o componente de host
     const bodyText = document.body.innerText || '';
     if (bodyText.includes('Aceitar e instalar') || bodyText.includes('Faça o download')) {
       return {
@@ -220,15 +268,18 @@ async function performCodeGeneration() {
   await sleep(300);
   triggerClick(btn);
 
-  // 3. Aguarda até 20 segundos pela resposta do servidor do Google e renderização do código
-  console.log('[RemoteDesktopExtension] Aguardando código de 12 dígitos...');
-  const maxWaitMs = 20000;
+  // 3. Aguarda resposta e renderização do código com timeouts das regras
+  const maxWaitMs = rules.maxWaitMs || DEFAULT_DOM_RULES.maxWaitMs;
+  const pollIntervalMs = rules.pollIntervalMs || DEFAULT_DOM_RULES.pollIntervalMs;
+  const cancelSelectors = rules.cancelSelectors || DEFAULT_DOM_RULES.cancelSelectors;
   const startTime = Date.now();
 
-  while (Date.now() - startTime < maxWaitMs) {
-    await sleep(400);
+  console.log(`[RemoteDesktopExtension] Aguardando código de 12 dígitos (max: ${maxWaitMs}ms)...`);
 
-    const generated = extract12DigitCode();
+  while (Date.now() - startTime < maxWaitMs) {
+    await sleep(pollIntervalMs);
+
+    const generated = extract12DigitCode(rules);
     if (generated) {
       console.log('[RemoteDesktopExtension] Código gerado com sucesso:', generated.formatted);
       await copyCode(generated.formatted, generated.copyBtn);
@@ -240,27 +291,30 @@ async function performCodeGeneration() {
       };
     }
 
-    // Se aparecer botão "Cancelar", o processo está em andamento ou o código está para aparecer
-    const cancelBtn = document.querySelector('[aria-label*="Cancelar"], [aria-label*="Cancel"]');
-    if (cancelBtn) {
-      // Pequena espera adicional para os números renderizarem
-      await sleep(500);
-      const generatedRetry = extract12DigitCode();
-      if (generatedRetry) {
-        await copyCode(generatedRetry.formatted, generatedRetry.copyBtn);
-        return {
-          success: true,
-          code: generatedRetry.formatted,
-          rawCode: generatedRetry.raw,
-          message: 'Código gerado com sucesso'
-        };
-      }
+    // Se aparecer botão "Cancelar", o processo está em andamento
+    for (const cancelSel of cancelSelectors) {
+      try {
+        const cancelBtn = document.querySelector(cancelSel);
+        if (cancelBtn) {
+          await sleep(400);
+          const generatedRetry = extract12DigitCode(rules);
+          if (generatedRetry) {
+            await copyCode(generatedRetry.formatted, generatedRetry.copyBtn);
+            return {
+              success: true,
+              code: generatedRetry.formatted,
+              rawCode: generatedRetry.raw,
+              message: 'Código gerado com sucesso'
+            };
+          }
+        }
+      } catch (_) {}
     }
   }
 
   return {
     success: false,
-    error: 'Tempo limite esgotado: o Google não retornou o código em 20 segundos. Verifique sua conexão.'
+    error: 'Tempo limite esgotado: o Google não retornou o código em tempo hábil. Verifique sua conexão.'
   };
 }
 
@@ -272,12 +326,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   if (request.action === 'GENERATE_CODE') {
-    performCodeGeneration()
+    performCodeGeneration(request.domRules)
       .then(result => sendResponse(result))
       .catch(err => {
         console.error('[RemoteDesktopExtension] Erro durante geração:', err);
         sendResponse({ success: false, error: err.message || 'Erro desconhecido' });
       });
-    return true; // Manter canal aberto para resposta assíncrona
+    return true;
   }
 });
