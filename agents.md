@@ -12,12 +12,14 @@ Este documento estabelece as diretrizes perenes de engenharia, arquitetura, test
 
 ---
 
-## 2. Padrão-Ouro de Engenharia e Limpeza de Código
+## 2. Padrão-Ouro de Engenharia, Profissionalidade e Retirada de Legado
 
-- **Sem gambiarras**: Desenvolva soluções limpas, idiomáticas, robustas e sustentáveis.
-- **Zero código morto**: Não deixe funções órfãs, variáveis esquecidas, acessos legados ou arquivos de rascunho na raiz. Mantenha a versão mais recente, organizada e profissional possível.
+- **Profissionalidade Absoluta e Sem Gambiarras**:
+  Quando for mudar algo, faça de maneira profissional e sem gambiarras (má prática). Sempre busque soluções padrão-ouro (estado da arte) em engenharia front-end e back-end para os problemas.
+- **Sem Suporte a Versões Legadas e Zero Código Morto**:
+  Não deixe códigos mortos nem acessos legados para versões antigas que possam ser removidos e limpos. Não queremos suporte a versões legadas, queremos somente a versão mais recente sempre: o que for antigo deve ser atualizado para o novo e o código antigo limpo. Queremos a versão mais organizada e enxuta possível. Mude apenas o necessário.
 - **Automação em Segundo Plano (Background First)**:
-  - Preserve a automação em segundo plano sem mover o mouse físico, digitar no Windows ou roubar o foco da janela do usuário.
+  - Preserve a automação em segundo plano sem mover o mouse físico, digitar no Windows ou roubar o foco da janela/aba do usuário.
   - Para interagir com o DOM do navegador, utilize sempre seletores CSS nativos válidos, eventos sintéticos corretos (`pointerdown`, `mousedown`, `click`) e verificação de visibilidade (`isVisible`).
   - Nunca declare que uma ação atingiu seu objetivo apenas porque o evento foi disparado. Confirme a alteração de estado no DOM (ex: presença do código de 12 dígitos gerado).
 
