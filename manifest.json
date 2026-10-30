@@ -1,18 +1,21 @@
 {
   "manifest_version": 3,
   "name": "Remote Desktop Code Generator",
-  "version": "1.1.0",
-  "description": "Gera códigos de suporte remoto no Google Remote Desktop e salva na planilha",
+  "version": "1.2.0",
+  "description": "Gera códigos de suporte remoto no Google Remote Desktop, conecta com Cloudflare Worker WebSocket e salva na planilha",
   "permissions": [
     "tabs",
     "scripting",
     "storage",
-    "clipboardWrite"
+    "clipboardWrite",
+    "alarms"
   ],
   "host_permissions": [
     "https://remotedesktop.google.com/*",
     "https://script.google.com/*",
-    "https://script.googleusercontent.com/*"
+    "https://script.googleusercontent.com/*",
+    "https://steep-lake-74ef.michelslvnqs.workers.dev/*",
+    "wss://steep-lake-74ef.michelslvnqs.workers.dev/*"
   ],
   "background": {
     "service_worker": "background.js"

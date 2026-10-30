@@ -1,6 +1,10 @@
 # Dependências
 node_modules/
 
+# Cloudflare Wrangler
+.wrangler/
+dist/
+
 # Arquivos locais e temporários
 .local/
 temp/

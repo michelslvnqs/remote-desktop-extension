@@ -1,0 +1,24 @@
+{
+  "name": "steep-lake-74ef",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-30",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "REMOTE_DESKTOP_HUB",
+        "class_name": "RemoteDesktopHub"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "RemoteDesktopHub"
+      ]
+    }
+  ]
+}

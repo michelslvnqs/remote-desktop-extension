@@ -1,0 +1,10 @@
+{
+  "name": "steep-lake-74ef",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker WebSocket Hub para Remote Desktop Code Generator",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  }
+}

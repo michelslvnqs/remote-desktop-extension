@@ -11,7 +11,7 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
     body {
-      width: 320px;
+      width: 330px;
       padding: 16px;
       background: #121826;
       color: #e2e8f0;
@@ -23,8 +23,8 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      margin-bottom: 14px;
-      padding-bottom: 10px;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
       border-bottom: 1px solid #1e293b;
     }
     .header svg {
@@ -37,6 +37,89 @@
       font-weight: 700;
       color: #f8fafc;
       letter-spacing: -0.2px;
+    }
+    .hub-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #0f172a;
+      padding: 7px 10px;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      border: 1px solid #1e293b;
+      font-size: 11px;
+    }
+    .hub-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+      color: #94a3b8;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .dot.online {
+      background: #4ade80;
+      box-shadow: 0 0 6px #4ade80;
+    }
+    .dot.offline {
+      background: #f87171;
+    }
+    .hub-link {
+      color: #38bdf8;
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .hub-link:hover {
+      text-decoration: underline;
+    }
+    .machine-bar {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 12px;
+    }
+    .machine-bar label {
+      font-size: 10px;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .machine-input-row {
+      display: flex;
+      gap: 6px;
+    }
+    .machine-input-row input {
+      flex: 1;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      padding: 6px 10px;
+      color: #f8fafc;
+      font-size: 12px;
+      outline: none;
+    }
+    .machine-input-row input:focus {
+      border-color: #38bdf8;
+    }
+    .btn-save {
+      padding: 6px 12px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      color: #38bdf8;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-save:hover {
+      background: #334155;
     }
     .btn {
       width: 100%;
@@ -90,7 +173,7 @@
       border: 1px solid #334155;
       border-radius: 8px;
       padding: 14px;
-      margin: 12px 0 8px 0;
+      margin: 10px 0 8px 0;
       text-align: center;
       min-height: 60px;
       display: flex;
@@ -219,6 +302,24 @@
       <path d="M20 18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/>
     </svg>
     <h2>Remote Desktop Code</h2>
+  </div>
+
+  <!-- Barra de Conexão com o Hub Cloudflare -->
+  <div class="hub-bar">
+    <div class="hub-status">
+      <span id="hubDot" class="dot offline"></span>
+      <span id="hubText">Hub Desconectado</span>
+    </div>
+    <a href="https://steep-lake-74ef.michelslvnqs.workers.dev" target="_blank" class="hub-link">🌐 Painel Web</a>
+  </div>
+
+  <!-- Identificador da Máquina -->
+  <div class="machine-bar">
+    <label for="inputMachineName">Identificador deste PC:</label>
+    <div class="machine-input-row">
+      <input type="text" id="inputMachineName" placeholder="Ex: PC-Michel" maxlength="25">
+      <button id="btnSaveMachine" class="btn-save">Salvar</button>
+    </div>
   </div>
 
   <button id="btnGenerate" class="btn btn-primary">
