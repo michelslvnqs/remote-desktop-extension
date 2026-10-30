@@ -1,0 +1,16 @@
+# Dependências
+node_modules/
+
+# Arquivos locais e temporários
+.local/
+temp/
+*.log
+
+# Variáveis de ambiente e segredos
+.env
+.env.*
+!.env.example
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
