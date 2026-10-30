@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
-import { minify } from 'terser';
+import { advancedObfuscate } from './obfuscator.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -70,28 +70,15 @@ for (const item of ['background.js', 'content.js', 'popup.html', 'popup.js', 'ic
 }
 fs.writeFileSync(path.join(DIRS.firefox, 'manifest.json'), JSON.stringify(firefoxManifest, null, 2) + '\n', 'utf8');
 
-// 7. Minificar e ofuscar scripts JS com Terser
-console.log('-> Minificando e ofuscando scripts com Terser...');
+// 7. Ofuscação Avançada Multi-estágio (Inspirado no padrão tp2026)
+console.log('-> Executando Pipeline de Ofuscação Avançada (tp2026 standard)...');
 const jsFiles = ['background.js', 'content.js', 'popup.js'];
 const minifiedContents = {};
 
 for (const js of jsFiles) {
   const code = fs.readFileSync(path.join(SRC_EXT, js), 'utf8');
-  console.log(`   [Terser] Ofuscando ${js}...`);
-  const res = await minify(code, {
-    compress: {
-      passes: 2,
-      dead_code: true
-    },
-    mangle: {
-      toplevel: true
-    },
-    format: {
-      comments: false
-    }
-  });
-  if (!res.code) throw new Error(`Falha ao minificar ${js}`);
-  minifiedContents[js] = res.code;
+  console.log(`   ==> Processando ${js}...`);
+  minifiedContents[js] = await advancedObfuscate(code, js);
 }
 
 // 8. Montar distribuicao/chrome-minificada (Com ofuscação)
