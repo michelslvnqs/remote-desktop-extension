@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "Remote Desktop Code Generator",
+  "version": "1.2.0",
+  "description": "Gera códigos de suporte remoto no Google Remote Desktop, conecta com Cloudflare Worker WebSocket e salva na planilha",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage",
+    "clipboardWrite",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://remotedesktop.google.com/*",
+    "https://script.google.com/*",
+    "https://script.googleusercontent.com/*",
+    "https://steep-lake-74ef.michelslvnqs.workers.dev/*",
+    "wss://steep-lake-74ef.michelslvnqs.workers.dev/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://remotedesktop.google.com/support*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Gerar Código Remote Desktop",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

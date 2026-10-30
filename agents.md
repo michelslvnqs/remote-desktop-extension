@@ -41,11 +41,11 @@ Nunca comite código com erros de sintaxe ou quebrado. Antes de qualquer commit:
 
 1. **Validação de Sintaxe JavaScript**:
    ```powershell
-   node -c background.js content.js popup.js
+   node -c extension/background.js extension/content.js extension/popup.js worker/src/index.js
    ```
 2. **Validação de Manifesto e JSON**:
    ```powershell
-   Get-Content manifest.json | ConvertFrom-Json | Out-Null
+   Get-Content extension/manifest.json | ConvertFrom-Json | Out-Null
    ```
 3. **Teste Funcional na Extensão**:
    - Recarregue a extensão em `chrome://extensions/` pelo botão de recarga (**🔄**).

@@ -1,0 +1,12 @@
+{
+  "name": "remote-desktop-extension",
+  "version": "1.2.0",
+  "description": "Automação do Google Remote Desktop via WebSocket Hub e suporte a Chrome e Firefox",
+  "type": "module",
+  "scripts": {
+    "build:dist": "node scripts/build-distribuicao.mjs"
+  },
+  "devDependencies": {
+    "terser": "^5.51.2"
+  }
+}

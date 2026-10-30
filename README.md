@@ -1,44 +1,91 @@
-# Remote Desktop Code Generator
+# Remote Desktop Code Generator & WebSocket Hub
 
-Extensão para Google Chrome (Manifest V3) desenvolvida para automatizar a geração de códigos de suporte no **Google Chrome Remote Desktop** e sincronizá-los diretamente com uma planilha no **Google Sheets** (Google Drive).
+Solução completa para automatização e controle remoto da geração de códigos no **Google Chrome Remote Desktop** com suporte a **Google Chrome**, **Mozilla Firefox**, integração com **Google Sheets** (Google Drive) e **Hub Central WebSocket via Cloudflare Worker** com **Durable Objects**.
 
 ---
 
 ## 🚀 Funcionalidades
 
-- **Automação Segura em Segundo Plano**: Abre (se necessário) a aba do Google Remote Desktop e clica no botão oficial de geração sob a seção *"Compartilhar esta tela"*.
-- **Extração Precisa**: Aguarda e extrai o código real de 12 dígitos (`XXXX XXXX XXXX`) gerado pelo Google.
-- **Cópia Instantânea**: Copia automaticamente o código para a área de transferência do usuário.
-- **Integração com Google Sheets**: Salva o código com timestamp em uma planilha via Google Apps Script (GAS).
-- **Controle de Sessão**:
-  - Alerta visual para manter a aba aberta durante a conexão do suporte.
-  - Botão dinâmico **"Fechar Aba do Remote"** que fica visível apenas enquanto a aba de suporte estiver aberta.
-- **Histórico Local**: Armazena e exibe os últimos códigos gerados com status de sincronização.
+- **Automação Segura em Segundo Plano**: Opera 100% em segundo plano (`active: false`) sem roubar o foco ou alternar a aba do usuário.
+- **Extração Precisa**: Aguarda e extrai o código real de 12 dígitos (`XXXX XXXX XXXX`) gerado pelo Google Remote Desktop.
+- **Hub Central WebSocket (Cloudflare Worker)**:
+  - Painel Web em tempo real: [https://steep-lake-74ef.michelslvnqs.workers.dev/](https://steep-lake-74ef.michelslvnqs.workers.dev/)
+  - Dropdown com todas as máquinas/usuários conectados em tempo real.
+  - Disparo remoto dos botões **"⚡ Gerar Código"** e **"❌ Fechar Aba"**.
+- **Multiplataforma (Chrome e Firefox)**:
+  - Distribuições separadas para Google Chrome e Mozilla Firefox.
+  - Versões **Limpas** (para inspeção e envio à AMO Mozilla).
+  - Versões **Ofuscadas com Terser** (com mangling de identificadores, compressão e remoção de comentários).
+- **Integração com Google Sheets**: Salva Usuário/Máquina, Código e Data/Hora na planilha do Google Drive via Google Apps Script (GAS).
+- **Pipeline Automatizado (`npm run build:dist`)**: Gera todas as distribuições e pacotes `.zip` na Área de Trabalho com um único comando.
 
 ---
 
-## 📁 Estrutura do Projeto
+## 📁 Estrutura Modular do Projeto
 
 ```
 remote-desktop-extension/
-├── manifest.json       # Manifesto de configuração da extensão (MV3)
-├── background.js      # Service Worker para orquestração de abas e comunicação com GAS
-├── content.js         # Script de automação injetado em remotedesktop.google.com/support
-├── popup.html         # Interface da extensão (Dark Mode)
-├── popup.js           # Lógica do painel popup e listeners de eventos
-├── Code.gs            # Código do Google Apps Script (Web App) para doPost e doGet
-├── GAS_code.txt       # Cópia do código GAS para referência
-├── agents.md          # Diretrizes perenes de engenharia, Git e testes para agentes de IA
-└── .gitignore         # Arquivos e pastas ignorados pelo Git
+├── worker/                          # Backend Cloudflare Worker + Durable Objects + Web Dashboard
+│   ├── package.json
+│   ├── wrangler.jsonc
+│   └── src/
+│       └── index.js
+├── gas/                             # Google Apps Script para Google Sheets (Google Drive)
+│   ├── Code.gs
+│   └── GAS_code.txt
+├── extension/                       # Código-fonte base da extensão (Chrome MV3)
+│   ├── manifest.json
+│   ├── background.js
+│   ├── content.js
+│   ├── popup.html
+│   ├── popup.js
+│   └── icons/                       # Ícones 16x16, 48x48 e 128x128
+├── distribuicao/                    # Pacotes organizados por navegador e ofuscação
+│   ├── chrome/                      # Versão Chrome limpa (desenvolvimento)
+│   ├── chrome-minificada/           # Versão Chrome ofuscada com Terser
+│   ├── firefox/                     # Versão Firefox limpa (para assinatura na Mozilla AMO)
+│   ├── firefox-minificada/          # Versão Firefox ofuscada com Terser
+│   ├── *.zip                        # Pacotes compactados gerados pelo pipeline
+│   └── docs/
+│       └── geracao-xpi-firefox.md   # Guia passo a passo para gerar o .xpi assinado
+├── scripts/                         # Pipeline de automação, ofuscação e ZIP
+│   ├── build-distribuicao.mjs       # Script principal de build e ofuscação
+│   └── make-zip.py                  # Empacotador ZIP com compatibilidade POSIX para AMO
+├── package.json                     # Scripts do repositório (npm run build:dist)
+├── agents.md                        # Diretrizes de desenvolvimento, padrão-ouro e sem legado
+└── .gitignore                       # Arquivos ignorados pelo Git
 ```
 
 ---
 
-## 🛠️ Instalação e Uso
+## 🛠️ Como Gerar as Distribuições
 
-1. Abra o Google Chrome e navegue até `chrome://extensions/`.
+No terminal do repositório, execute:
+```powershell
+npm run build:dist
+```
+Esse comando irá:
+1. Montar as pastas em `distribuicao/chrome`, `distribuicao/chrome-minificada`, `distribuicao/firefox` e `distribuicao/firefox-minificada`.
+2. Ofuscar e minificar os arquivos JavaScript usando **Terser**.
+3. Gerar os 4 pacotes `.zip` e copiá-los diretamente para a sua **Área de Trabalho**:
+   - `remote-desktop-chrome.zip`
+   - `remote-desktop-chrome-minificada.zip`
+   - `remote-desktop-firefox.zip`
+   - `remote-desktop-firefox-minificada.zip`
+
+---
+
+## 🌐 Instalação nos Navegadores
+
+### Google Chrome
+1. Abra `chrome://extensions/` no Chrome.
 2. Ative o **Modo do desenvolvedor** no canto superior direito.
-3. Clique em **Carregar sem compactação** (Load unpacked).
-4. Selecione esta pasta (`c:\Users\miche\Desktop\Git\remote-desktop-extension`).
-5. Fixe a extensão na barra de ferramentas do Chrome.
-6. Clique no ícone da extensão e depois em **"Gerar Código"**.
+3. Clique em **Carregar sem compactação** e selecione a pasta:  
+   👉 `distribuicao/chrome` (para desenvolvimento/código limpo) ou `distribuicao/chrome-minificada` (ofuscada).
+
+### Mozilla Firefox
+Para instalar nos seus computadores sem publicar na loja pública da Mozilla:
+1. Consulte o guia detalhado em [`distribuicao/docs/geracao-xpi-firefox.md`](distribuicao/docs/geracao-xpi-firefox.md).
+2. Envie o arquivo `remote-desktop-firefox.zip` no [Developer Hub da Mozilla](https://addons.mozilla.org/pt-BR/developers/addon/submit/distribution) como **"Faça você mesmo"** (Unlisted).
+3. A Mozilla assina o pacote automaticamente em 1 a 2 minutos e libera o arquivo `.xpi` para download.
+4. Arraste o `.xpi` assinado para o Firefox ou instale por `about:addons`.
