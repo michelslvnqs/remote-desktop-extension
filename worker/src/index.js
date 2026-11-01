@@ -509,6 +509,25 @@ export default {
       });
     }
 
+    // Proteção na borda: impede que uma instância antiga do Durable Object
+    // ainda ativa por WebSocket receba tráfego administrativo sem autenticação.
+    if (url.pathname === '/api/status' && !(await isAdminAuthenticated(request, env))) {
+      return unauthorizedJson();
+    }
+
+    if (url.pathname === '/ws'
+      && request.headers.get('Upgrade')?.toLowerCase() === 'websocket'
+      && url.searchParams.get('type') === 'dashboard') {
+      const expectedOrigin = `${url.protocol === 'http:' ? 'http:' : 'https:'}//${url.host}`;
+      const sameOrigin = request.headers.get('Origin') === expectedOrigin;
+      if (!sameOrigin || !(await isAdminAuthenticated(request, env))) {
+        return new Response('Autenticação administrativa necessária.', {
+          status: 401,
+          headers: securityHeaders('text/plain; charset=utf-8')
+        });
+      }
+    }
+
     // Roteia conexões WebSocket e endpoints da API para o Durable Object único
     if (url.pathname === '/ws' || url.pathname.startsWith('/api/')) {
       const id = env.REMOTE_DESKTOP_HUB.idFromName('global-hub');
