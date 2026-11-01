@@ -1,6 +1,134 @@
 import { DurableObject } from 'cloudflare:workers';
 
 const SHEET_ENDPOINT = 'https://script.google.com/macros/s/AKfycbx7OgYnA0OKPgXL9yhWUhdxCz4C7UnapjXWYaSukelqt6u__2wOs1eVZvpetmKmil59/exec';
+const ADMIN_COOKIE_NAME = '__Host-rd_admin';
+const ADMIN_SESSION_TTL_SECONDS = 8 * 60 * 60;
+const textEncoder = new TextEncoder();
+
+function bytesToBase64Url(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlToBytes(value) {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+  const binary = atob(padded);
+  return Uint8Array.from(binary, char => char.charCodeAt(0));
+}
+
+function timingSafeEqualBytes(left, right) {
+  if (left.length !== right.length) return false;
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left[index] ^ right[index];
+  }
+  return difference === 0;
+}
+
+function timingSafeEqualText(left, right) {
+  return timingSafeEqualBytes(textEncoder.encode(left), textEncoder.encode(right));
+}
+
+async function sha256Hex(value) {
+  const digest = await crypto.subtle.digest('SHA-256', textEncoder.encode(value));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function getSessionKey(env) {
+  return crypto.subtle.importKey(
+    'raw',
+    textEncoder.encode(env.SESSION_SECRET),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+}
+
+async function signSessionPayload(payload, env) {
+  const key = await getSessionKey(env);
+  const signature = await crypto.subtle.sign('HMAC', key, textEncoder.encode(payload));
+  return bytesToBase64Url(new Uint8Array(signature));
+}
+
+function randomBase64Url(byteLength = 16) {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return bytesToBase64Url(bytes);
+}
+
+async function createAdminSession(env) {
+  const expiresAt = Math.floor(Date.now() / 1000) + ADMIN_SESSION_TTL_SECONDS;
+  const payload = `v1.${expiresAt}.${randomBase64Url()}`;
+  const signature = await signSessionPayload(payload, env);
+  return `${payload}.${signature}`;
+}
+
+function getCookie(request, name) {
+  const cookieHeader = request.headers.get('Cookie') || '';
+  for (const entry of cookieHeader.split(';')) {
+    const separatorIndex = entry.indexOf('=');
+    if (separatorIndex < 0) continue;
+    const key = entry.slice(0, separatorIndex).trim();
+    if (key === name) return entry.slice(separatorIndex + 1).trim();
+  }
+  return null;
+}
+
+function hasAdminSecrets(env) {
+  return typeof env.ADMIN_PASSWORD_HASH === 'string'
+    && /^[a-f0-9]{64}$/i.test(env.ADMIN_PASSWORD_HASH)
+    && typeof env.SESSION_SECRET === 'string'
+    && env.SESSION_SECRET.length >= 32;
+}
+
+async function isAdminAuthenticated(request, env) {
+  if (!hasAdminSecrets(env)) return false;
+  const token = getCookie(request, ADMIN_COOKIE_NAME);
+  if (!token) return false;
+
+  const parts = token.split('.');
+  if (parts.length !== 4 || parts[0] !== 'v1') return false;
+
+  const expiresAt = Number(parts[1]);
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= Math.floor(Date.now() / 1000)) return false;
+
+  const payload = parts.slice(0, 3).join('.');
+  const expectedSignature = await signSessionPayload(payload, env);
+
+  try {
+    return timingSafeEqualBytes(
+      base64UrlToBytes(parts[3]),
+      base64UrlToBytes(expectedSignature)
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+function adminCookie(value, maxAge = ADMIN_SESSION_TTL_SECONDS) {
+  return `${ADMIN_COOKIE_NAME}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
+}
+
+function securityHeaders(contentType = null) {
+  const headers = new Headers({
+    'Cache-Control': 'no-store',
+    'Content-Security-Policy': "default-src 'self'; connect-src 'self' wss:; img-src 'self' data:; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY'
+  });
+  if (contentType) headers.set('Content-Type', contentType);
+  return headers;
+}
+
+function unauthorizedJson() {
+  return Response.json(
+    { success: false, error: 'Autenticação administrativa necessária.' },
+    { status: 401, headers: securityHeaders() }
+  );
+}
 
 // ========================================================
 // 0. CONFIGURAÇÃO REMOTA DE SELETORES DO DOM (DINÂMICO)
@@ -117,7 +245,19 @@ export class RemoteDesktopHub extends DurableObject {
 
     // Endpoint de WebSocket: /ws
     if (url.pathname === '/ws' && request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
-      const type = url.searchParams.get('type') || 'dashboard'; // 'extension' ou 'dashboard'
+      const type = url.searchParams.get('type'); // 'extension' ou 'dashboard'
+      if (type !== 'extension' && type !== 'dashboard') {
+        return new Response('Tipo de cliente WebSocket inválido.', { status: 400 });
+      }
+
+      if (type === 'dashboard') {
+        const expectedOrigin = `${url.protocol === 'http:' ? 'http:' : 'https:'}//${url.host}`;
+        const sameOrigin = request.headers.get('Origin') === expectedOrigin;
+        if (!sameOrigin || !(await isAdminAuthenticated(request, this.env))) {
+          return new Response('Autenticação administrativa necessária.', { status: 401 });
+        }
+      }
+
       const userId = (url.searchParams.get('userId') || url.searchParams.get('client') || 'Anonimo').trim();
 
       const pair = new WebSocketPair();
@@ -237,6 +377,15 @@ export class RemoteDesktopHub extends DurableObject {
             // Dashboard disparou comando para uma extensão específica
             if (data.action === 'SEND_COMMAND') {
               const { targetUser, command } = data;
+              if (!['GENERATE_CODE', 'CLOSE_TAB'].includes(command)) {
+                serverSocket.send(JSON.stringify({
+                  type: 'COMMAND_RESULT',
+                  success: false,
+                  error: 'Comando administrativo inválido.'
+                }));
+                return;
+              }
+
               const target = this.extensionClients.get(targetUser);
 
               if (!target) {
@@ -290,11 +439,14 @@ export class RemoteDesktopHub extends DurableObject {
 
     // API de status em JSON
     if (url.pathname === '/api/status') {
+      if (!(await isAdminAuthenticated(request, this.env))) {
+        return unauthorizedJson();
+      }
       return Response.json({
         onlineUsersCount: this.extensionClients.size,
         users: Array.from(this.extensionClients.keys()),
         history: this.history
-      });
+      }, { headers: securityHeaders() });
     }
 
     return new Response('Not Found', { status: 404 });
@@ -307,6 +459,45 @@ export class RemoteDesktopHub extends DurableObject {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    if (url.pathname === '/admin/login' && request.method === 'POST') {
+      if (!hasAdminSecrets(env)) {
+        return new Response(loginHtml('A autenticação ainda não foi configurada no Worker.'), {
+          status: 503,
+          headers: securityHeaders('text/html; charset=utf-8')
+        });
+      }
+
+      const formData = await request.formData();
+      const password = String(formData.get('password') || '');
+      const passwordHash = await sha256Hex(password);
+
+      if (!timingSafeEqualText(passwordHash.toLowerCase(), env.ADMIN_PASSWORD_HASH.toLowerCase())) {
+        return new Response(loginHtml('Senha incorreta.'), {
+          status: 401,
+          headers: securityHeaders('text/html; charset=utf-8')
+        });
+      }
+
+      const session = await createAdminSession(env);
+      const headers = securityHeaders();
+      headers.set('Location', '/');
+      headers.append('Set-Cookie', adminCookie(session));
+      return new Response(null, { status: 303, headers });
+    }
+
+    if (url.pathname === '/admin/logout' && request.method === 'POST') {
+      const headers = securityHeaders();
+      headers.set('Location', '/');
+      headers.append('Set-Cookie', adminCookie('', 0));
+      return new Response(null, { status: 303, headers });
+    }
+
+    if (url.pathname === '/admin/login' && request.method === 'GET') {
+      const headers = securityHeaders();
+      headers.set('Location', '/');
+      return new Response(null, { status: 303, headers });
+    }
 
     // Endpoint direto para regras dinâmicas do DOM (resposta ultra-rápida na borda)
     if (url.pathname === '/api/dom-rules') {
@@ -327,17 +518,105 @@ export default {
 
     // Serve a Interface Web do Dashboard Central
     if (url.pathname === '/' || url.pathname === '/index.html') {
+      if (!(await isAdminAuthenticated(request, env))) {
+        return new Response(loginHtml(), {
+          status: 200,
+          headers: securityHeaders('text/html; charset=utf-8')
+        });
+      }
+
       return new Response(dashboardHtml, {
-        headers: {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-cache'
-        }
+        headers: securityHeaders('text/html; charset=utf-8')
       });
     }
 
     return new Response('Not Found', { status: 404 });
   }
 };
+
+function loginHtml(errorMessage = '') {
+  const errorBlock = errorMessage
+    ? `<div class="error" role="alert">${errorMessage}</div>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acesso administrativo</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      padding: 24px;
+      display: grid;
+      place-items: center;
+      background: #0b0f19;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    main {
+      width: min(100%, 420px);
+      padding: 28px;
+      border: 1px solid #1e293b;
+      border-radius: 14px;
+      background: #121826;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+    }
+    h1 { margin: 0 0 8px; color: #f8fafc; font-size: 22px; }
+    p { margin: 0 0 22px; color: #94a3b8; font-size: 14px; line-height: 1.5; }
+    label { display: block; margin-bottom: 8px; color: #cbd5e1; font-size: 13px; font-weight: 700; }
+    input {
+      width: 100%;
+      padding: 13px 14px;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      outline: none;
+      background: #0f172a;
+      color: #f8fafc;
+      font-size: 16px;
+    }
+    input:focus { border-color: #38bdf8; box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.12); }
+    button {
+      width: 100%;
+      margin-top: 14px;
+      padding: 13px 16px;
+      border: 0;
+      border-radius: 8px;
+      background: #0284c7;
+      color: #fff;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover { background: #0369a1; }
+    .error {
+      margin-bottom: 14px;
+      padding: 10px 12px;
+      border: 1px solid rgba(248, 113, 113, 0.35);
+      border-radius: 8px;
+      background: rgba(239, 68, 68, 0.12);
+      color: #fca5a5;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Central Remote Desktop</h1>
+    <p>Digite a senha administrativa para acessar computadores e códigos.</p>
+    ${errorBlock}
+    <form method="post" action="/admin/login">
+      <label for="password">Senha administrativa</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+      <button type="submit">Entrar</button>
+    </form>
+  </main>
+</body>
+</html>`;
+}
 
 // ==========================================
 // 3. INTERFACE WEB: Dashboard com Dropdown e Botões
@@ -394,6 +673,26 @@ const dashboardHtml = `<!DOCTYPE html>
       font-size: 17px;
       font-weight: 700;
       color: #f8fafc;
+    }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .logout-form { margin: 0; }
+    .logout-button {
+      padding: 5px 9px;
+      border: 1px solid #334155;
+      border-radius: 7px;
+      background: transparent;
+      color: #94a3b8;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .logout-button:hover {
+      border-color: #64748b;
+      color: #e2e8f0;
     }
     .status-pill {
       font-size: 11px;
@@ -618,7 +917,12 @@ const dashboardHtml = `<!DOCTYPE html>
           <svg viewBox="0 0 24 24"><path d="M20 18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>
           <h1>Central Remote Desktop</h1>
         </div>
-        <div id="connPill" class="status-pill offline">Conectando...</div>
+        <div class="header-actions">
+          <div id="connPill" class="status-pill offline">Conectando...</div>
+          <form class="logout-form" method="post" action="/admin/logout">
+            <button class="logout-button" type="submit">Sair</button>
+          </form>
+        </div>
       </div>
 
       <div class="form-group">
@@ -720,24 +1024,39 @@ const dashboardHtml = `<!DOCTYPE html>
     }
 
     function renderHistory(history) {
+      historyList.replaceChildren();
+
       if (!history || history.length === 0) {
-        historyList.innerHTML = '<div style="color: #64748b; font-size: 12px; text-align: center; padding: 12px;">Nenhum código gerado recentemente</div>';
+        const emptyState = document.createElement('div');
+        emptyState.style.cssText = 'color: #64748b; font-size: 12px; text-align: center; padding: 12px;';
+        emptyState.textContent = 'Nenhum código gerado recentemente';
+        historyList.appendChild(emptyState);
         return;
       }
-      let html = '';
+
       history.forEach(item => {
         const time = new Date(item.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        html += \`
-          <div class="history-item">
-            <div>
-              <span class="history-user">\${item.user}</span>
-              <span style="font-size: 11px; color: #64748b; margin-left: 6px;">\${time}</span>
-            </div>
-            <span class="history-code">\${item.code}</span>
-          </div>
-        \`;
+
+        const row = document.createElement('div');
+        row.className = 'history-item';
+
+        const identity = document.createElement('div');
+        const user = document.createElement('span');
+        user.className = 'history-user';
+        user.textContent = String(item.user || 'Desconhecido');
+
+        const timestamp = document.createElement('span');
+        timestamp.style.cssText = 'font-size: 11px; color: #64748b; margin-left: 6px;';
+        timestamp.textContent = time;
+
+        const code = document.createElement('span');
+        code.className = 'history-code';
+        code.textContent = String(item.code || '');
+
+        identity.append(user, timestamp);
+        row.append(identity, code);
+        historyList.appendChild(row);
       });
-      historyList.innerHTML = html;
     }
 
     function connectWs() {
