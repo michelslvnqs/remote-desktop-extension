@@ -89,3 +89,16 @@ Para instalar nos seus computadores sem publicar na loja pública da Mozilla:
 2. Envie o arquivo `remote-desktop-firefox.zip` no [Developer Hub da Mozilla](https://addons.mozilla.org/pt-BR/developers/addon/submit/distribution) como **"Faça você mesmo"** (Unlisted).
 3. A Mozilla assina o pacote automaticamente em 1 a 2 minutos e libera o arquivo `.xpi` para download.
 4. Arraste o `.xpi` assinado para o Firefox ou instale por `about:addons`.
+
+---
+
+## 🔐 Proteção do Painel Administrativo
+
+O painel web, o WebSocket administrativo e a API `/api/status` exigem uma sessão autenticada. A sessão dura 8 horas e utiliza um cookie `HttpOnly`, `Secure` e `SameSite=Strict`, assinado por HMAC.
+
+Antes de publicar o Worker, configure dois segredos no Cloudflare:
+
+- `ADMIN_PASSWORD_HASH`: SHA-256 hexadecimal da senha administrativa.
+- `SESSION_SECRET`: segredo aleatório com pelo menos 32 caracteres, usado exclusivamente para assinar as sessões.
+
+Cadastre-os com `wrangler secret put` ou pelo painel do Cloudflare. Nunca coloque a senha, seu hash ou a chave de sessão no GitHub. Sem os dois segredos, o painel permanece bloqueado.
