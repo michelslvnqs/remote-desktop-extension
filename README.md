@@ -103,4 +103,4 @@ Antes de publicar o Worker, configure dois segredos no Cloudflare:
 
 Cadastre-os com `wrangler secret put` ou pelo painel do Cloudflare. Nunca coloque a senha, seu hash ou a chave de sessão no GitHub. Sem os dois segredos, o painel permanece bloqueado.
 
-O Worker de produção é publicado pelo Cloudflare Workers Builds a partir da branch `main`, usando `worker` como diretório raiz e `npx wrangler deploy` como comando de publicação.
+O Worker de produção é publicado pelo Cloudflare Workers Builds a partir da branch `main`, usando a raiz do repositório e `npx wrangler deploy --config worker/wrangler.jsonc` como comando de publicação.
